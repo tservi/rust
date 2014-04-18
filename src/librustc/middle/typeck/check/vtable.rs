@@ -9,6 +9,7 @@
 // except according to those terms.
 
 
+use middle::kind::check_builtin_bounds;
 use middle::ty;
 use middle::ty::{AutoAddEnv, AutoDerefRef, AutoObject, param_ty};
 use middle::ty_fold::TypeFolder;
@@ -26,6 +27,7 @@ use middle::subst::Subst;
 use util::common::indenter;
 use util::ppaux;
 use util::ppaux::Repr;
+use util::ppaux::UserString;
 
 use collections::HashSet;
 use std::cell::RefCell;
@@ -123,6 +125,27 @@ fn lookup_vtables_for_param(vcx: &VtableContext,
                             ty: ty::t,
                             is_early: bool) -> vtable_param_res {
     let tcx = vcx.tcx();
+
+    // FIXME(#13231): this will likely break once opt-in builtin kinds are implemented
+    if !type_param_bounds.builtin_bounds.is_empty() {
+        match fixup_ty(vcx, span, ty, is_early) {
+            Some(fix_ty) => {
+                check_builtin_bounds(
+                    vcx.tcx(),
+                    fix_ty,
+                    type_param_bounds.builtin_bounds,
+                    |missing: ty::BuiltinBounds| {
+                        vcx.tcx().sess.span_err(
+                            span,
+                            format!("instantiating a type parameter with an incompatible type \
+                                    `{}`, which does not fulfill `{}`",
+                                    vcx.infcx.ty_to_str(ty),
+                                    missing.user_string(tcx)));
+                    });
+            }
+            None => {}
+        }
+    }
 
     // ty is the value supplied for the type parameter A...
     let mut param_result = Vec::new();
